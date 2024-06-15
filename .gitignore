@@ -51,4 +51,4 @@ wheels/
 *.egg
 
 # API Keys file
-keys*
+keys.json
