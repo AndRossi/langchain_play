@@ -62,3 +62,14 @@ print(f"Answer without additional context:\n\t{answer_without_retrieval.content}
 
 answer_with_retrieval = retrieval_chain.invoke({"input": question})
 print(f"Answer with additional context:\n\t{answer_with_retrieval['answer']}")
+
+print("\n##########################################################################################\n")
+
+question = "How are the wings on the Hyrule crest?"
+print(f"Asking the following question:\n\t{question}")
+
+answer_without_retrieval = llm.invoke(question)
+print(f"Answer without additional context:\n\t{answer_without_retrieval.content}")
+
+answer_with_retrieval = retrieval_chain.invoke({"input": question})
+print(f"Answer with additional context:\n\t{answer_with_retrieval['answer']}")
