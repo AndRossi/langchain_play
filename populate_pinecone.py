@@ -1,18 +1,23 @@
 """Initialize and populate the Pinecone vector store with local data"""
 import os
+from typing import Any
 import time
 import base64
 from keys import PINECONE_KEY, OPENAI_KEY
-from constants import PINECONE_INDEX_NAME
+from constants import PINECONE_INDEX_NAME, MAX_CHUNK_SIZE
 
 from pinecone import Pinecone, ServerlessSpec
 
 from langchain_core.messages.human import HumanMessage
 from langchain_core.documents.base import Document
 from langchain_community.document_loaders import TextLoader
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_pinecone import PineconeVectorStore
 from langchain_text_splitters import CharacterTextSplitter
+
+from unstructured.partition.pdf import partition_pdf
+from pydantic import BaseModel
 
 
 DATA_FOLDER = os.path.abspath("data")
@@ -36,15 +41,7 @@ llm = ChatOpenAI(
 )
 
 
-def _txt_to_documents(filepath: str) -> list[Document]:
-    print(f"\tLoading .txt document {filepath}...")
-    loader = TextLoader(filepath)
-    return loader.load()
-
-
-def _png_to_document(filepath: str) -> list[Document]:
-    print(f"\tLoading .png document {filepath}...")
-
+def _get_image_caption(filepath: str) -> str:
     name, extension = filepath.split("/")[-1].split(".")
     with open(filepath, "rb") as image_file:
         image_data = base64.b64encode(image_file.read()).decode("utf-8")
@@ -56,8 +53,65 @@ def _png_to_document(filepath: str) -> list[Document]:
         ],
     )
     response = llm.invoke([message])
-    print(response.content)
-    return [Document(page_content=f"{name}: {response.content}")]
+    return response.content
+
+
+def _txt_to_documents(filepath: str) -> list[Document]:
+    print(f"\tLoading .txt document {filepath}...")
+    loader = TextLoader(filepath)
+    return loader.load()
+
+
+def _image_to_documents(filepath: str) -> list[Document]:
+    name, extension = filepath.split("/")[-1].split(".")
+    print(f"\tLoading .{extension} document {filepath}...")
+
+    caption = _get_image_caption(filepath)
+    return [Document(page_content=f"{name}: {caption}")]
+
+
+def _pdf_to_documents(filepath: str) -> list[Document]:
+    print(f"\tLoading .pdf document {filepath}...")
+
+    # Use unstructured to partition the PDF in elements
+    raw_pdf_elements = partition_pdf(
+        filename=os.path.join(DATA_FOLDER, "hyrule_crests.pdf"),
+        extract_images_in_pdf=True,  # use pdf format to find embedded image blocks
+        infer_table_structure=True,  # use YOLOX to find tables and titles
+        # chunking_strategy="by_title",  # if enabled, it does not extract images :(
+        max_characters=MAX_CHUNK_SIZE,  # max chunk size.
+        new_after_n_chars=int(MAX_CHUNK_SIZE*0.9),  # start a new chunk asap when you exceed 90% of the max chunk size.
+        combine_text_under_n_chars=int(MAX_CHUNK_SIZE*0.45),  # merge chunks smaller than 45% of max chunk size.
+        image_output_dir_path=DATA_PROCESSING_FOLDER,
+    )
+
+    # Split the obtained raw_pdf_elements into groups using the title elements as separators.
+    all_documents = []
+    cur_document_contents = []
+    for el in raw_pdf_elements:
+
+        # We assume the first element in a PDF is always a title.
+        if el.category == "Title":
+            if cur_document_contents != []:
+                new_doc = Document(page_content=f"{cur_document_contents[0]}: {' '.join(cur_document_contents[1:])}")
+                all_documents.append(new_doc)
+                cur_document_contents = []
+            cur_document_contents.append(el.text)
+
+        elif el.category == "Image":
+            img_filepath = el.metadata.image_path
+            img_caption = _get_image_caption(img_filepath)
+            cur_document_contents.append(img_caption)
+
+        else:
+            cur_document_contents.append(el.text)
+
+    if cur_document_contents != []:
+        final_doc = Document(page_content=f"{cur_document_contents[0]}: {' '.join(cur_document_contents[1:])}")
+        all_documents.append(final_doc)
+
+    print(all_documents)
+    return all_documents
 
 
 # Load all documents and split them into 1000-sized chunks.
@@ -68,12 +122,14 @@ for filename in os.listdir(DATA_FOLDER):
     if filepath.endswith(".txt"):
         documents += _txt_to_documents(filepath)
     elif filepath.endswith(".png"):
-        documents += _png_to_document(filepath)
+        documents += _image_to_documents(filepath)
+    elif filepath.endswith(".pdf"):
+        documents += _pdf_to_documents(filepath)
     else:
         print(f"\tWARNING: Document of unsupported type: {filepath}")
 
 # Split all the obtained docs into chunks.
-text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
+text_splitter = CharacterTextSplitter(chunk_size=MAX_CHUNK_SIZE, chunk_overlap=0)
 chunked_documents = text_splitter.split_documents(documents)
 print(f"Done.\n")
 

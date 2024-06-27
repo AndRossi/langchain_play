@@ -73,3 +73,27 @@ print(f"Answer without additional context:\n\t{answer_without_retrieval.content}
 
 answer_with_retrieval = retrieval_chain.invoke({"input": question})
 print(f"Answer with additional context:\n\t{answer_with_retrieval['answer']}")
+
+
+print("\n##########################################################################################\n")
+
+question = "Can you please describe the mask of Majora?"
+print(f"Asking the following question:\n\t{question}")
+
+answer_without_retrieval = llm.invoke(question)
+print(f"Answer without additional context:\n\t{answer_without_retrieval.content}")
+
+answer_with_retrieval = retrieval_chain.invoke({"input": question})
+print(f"Answer with additional context:\n\t{answer_with_retrieval['answer']}")
+
+
+print("\n##########################################################################################\n")
+
+question = "What is the Lorule crest like?"
+print(f"Asking the following question:\n\t{question}")
+
+answer_without_retrieval = llm.invoke(question)
+print(f"Answer without additional context:\n\t{answer_without_retrieval.content}")
+
+answer_with_retrieval = retrieval_chain.invoke({"input": question})
+print(f"Answer with additional context:\n\t{answer_with_retrieval['answer']}")
